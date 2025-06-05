@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat App</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; }
+    #loginSection, #chatSection { margin-bottom: 20px; }
+    #messages { border: 1px solid #ccc; height: 300px; overflow-y: scroll; padding: 10px; }
+    #messages div { margin-bottom: 8px; }
+    #userList, #requestsList { margin: 10px 0; }
+    button { cursor: pointer; }
+  </style>
+</head>
+<body>
+
+  <h1>Simple Chat App</h1>
+
+  <div id="loginSection">
+    <h2>Login / Signup</h2>
+    <input type="text" id="usernameInput" placeholder="Username" />
+    <input type="password" id="passwordInput" placeholder="Password" />
+    <button id="signupBtn">Signup</button>
+    <button id="loginBtn">Login</button>
+    <p id="loginStatus"></p>
+  </div>
+
+  <div id="chatSection" style="display:none;">
+    <h2>Welcome, <span id="currentUser"></span></h2>
+
+    <div>
+      <input type="text" id="searchInput" placeholder="Search users to add..." />
+      <button id="searchBtn">Search</button>
+      <ul id="userList"></ul>
+    </div>
+
+    <h3>Chat Requests</h3>
+    <ul id="requestsList"></ul>
+
+    <h3>Chats</h3>
+    <select id="chatSelect"></select>
+
+    <div id="messages"></div>
+
+    <input type="text" id="messageInput" placeholder="Type a message" />
+    <button id="sendBtn">Send</button>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
