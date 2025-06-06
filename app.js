@@ -10,7 +10,8 @@ const User = require('./models/User');
 const Message = require('./models/Message');
 
 const PORT = 3000;
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_URI = 'Mongodb+srv://imnothero02:7XAtFnZCCDgAGtxT@cluster0.5cay7kz.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
+
 
 app.use(express.static(path.join(__dirname, 'public')));
 
