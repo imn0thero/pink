@@ -1,29 +1,16 @@
 {
-  "name": "chat-app",
+  "name": "smileapp",
   "version": "1.0.0",
-  "description": "Simple real-time chat application with Express, Socket.IO, and MongoDB",
+  "description": "A simple real-time chat app using Express, Socket.IO, and JSON file storage.",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js",
-    "dev": "nodemon app.js"
+    "start": "node app.js"
   },
-  "keywords": [
-    "chat",
-    "socket.io",
-    "express",
-    "mongodb",
-    "real-time"
-  ],
   "author": "Azz",
   "license": "MIT",
   "dependencies": {
     "bcrypt": "^5.1.0",
-    "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "mongoose": "^7.4.0",
     "socket.io": "^4.7.2"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
   }
 }
