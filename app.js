@@ -1,5 +1,3 @@
-require('dotenv').config();
-
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
@@ -11,7 +9,7 @@ const bcrypt = require('bcrypt');
 const User = require('./models/User');
 const Message = require('./models/Message');
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 const MONGO_URI = process.env.MONGO_URI;
 
 app.use(express.static(path.join(__dirname, 'public')));
