@@ -10,7 +10,7 @@ const serviceAccount = require('./firebase-service-account.json');
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: 'https://<YOUR_PROJECT_ID>.firebaseio.com' // ganti <YOUR_PROJECT_ID>
+  databaseURL: 'https://smileapp1-default-rtdb.asia-southeast1.firebasedatabase.app' // ganti <YOUR_PROJECT_ID>
 });
 
 const db = admin.database();
