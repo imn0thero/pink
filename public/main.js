@@ -1,165 +1,130 @@
 const socket = io();
-
-const loginSection = document.getElementById('loginSection');
-const chatSection = document.getElementById('chatSection');
-const usernameInput = document.getElementById('usernameInput');
-const passwordInput = document.getElementById('passwordInput');
-const signupBtn = document.getElementById('signupBtn');
-const loginBtn = document.getElementById('loginBtn');
-const loginStatus = document.getElementById('loginStatus');
-
-const currentUserSpan = document.getElementById('currentUser');
-const searchInput = document.getElementById('searchInput');
-const searchBtn = document.getElementById('searchBtn');
-const userList = document.getElementById('userList');
-const requestsList = document.getElementById('requestsList');
-const chatSelect = document.getElementById('chatSelect');
-const messagesDiv = document.getElementById('messages');
-const messageInput = document.getElementById('messageInput');
-const sendBtn = document.getElementById('sendBtn');
-
 let currentUser = null;
 let currentChat = null;
 
 // Signup
-signupBtn.addEventListener('click', () => {
-  const username = usernameInput.value.trim();
-  const password = passwordInput.value;
-  if (!username || !password) {
-    loginStatus.textContent = 'Isi username dan password';
-    return;
-  }
+document.getElementById('signupForm')?.addEventListener('submit', e => {
+  e.preventDefault();
+  const username = e.target.username.value;
+  const password = e.target.password.value;
   socket.emit('signup', { username, password });
 });
 
-socket.on('signupResult', ({ success, message }) => {
-  loginStatus.textContent = success ? 'Signup berhasil! Silakan login.' : (message || 'Signup gagal');
+socket.on('signupResult', res => {
+  alert(res.message || (res.success ? 'Signup berhasil!' : 'Signup gagal'));
+  if (res.success) location.reload();
 });
 
 // Login
-loginBtn.addEventListener('click', () => {
-  const username = usernameInput.value.trim();
-  const password = passwordInput.value;
-  if (!username || !password) {
-    loginStatus.textContent = 'Isi username dan password';
-    return;
-  }
+document.getElementById('loginForm')?.addEventListener('submit', e => {
+  e.preventDefault();
+  const username = e.target.username.value;
+  const password = e.target.password.value;
   socket.emit('login', { username, password });
 });
 
-socket.on('loginResult', ({ success, user, chats, requests }) => {
-  if (success) {
-    currentUser = user;
-    loginSection.style.display = 'none';
-    chatSection.style.display = 'block';
-    currentUserSpan.textContent = currentUser;
-    loginStatus.textContent = '';
-    updateChats(chats);
-    updateRequests(requests);
-  } else {
-    loginStatus.textContent = 'Login gagal. Cek username dan password.';
-  }
+socket.on('loginResult', res => {
+  if (!res.success) return alert('Login gagal');
+  currentUser = res.user;
+  document.getElementById('authSection').style.display = 'none';
+  document.getElementById('chatSection').style.display = 'block';
+  loadChats(res.chats);
+  loadRequests(res.requests);
 });
 
-// Search users
-searchBtn.addEventListener('click', () => {
-  const keyword = searchInput.value.trim();
-  if (!keyword) return;
+// Edit Profile
+document.getElementById('editForm')?.addEventListener('submit', e => {
+  e.preventDefault();
+  const newUsername = e.target.newUsername.value;
+  const newPassword = e.target.newPassword.value;
+  socket.emit('editProfile', { newUsername, newPassword });
+});
+
+socket.on('profileUpdated', res => {
+  alert(res.message || 'Profil diperbarui');
+});
+
+// Search User
+document.getElementById('searchForm')?.addEventListener('submit', e => {
+  e.preventDefault();
+  const keyword = e.target.keyword.value;
   socket.emit('searchUser', keyword);
 });
 
 socket.on('searchResult', users => {
-  userList.innerHTML = '';
+  const ul = document.getElementById('searchResults');
+  ul.innerHTML = '';
   users.forEach(u => {
-    if (u === currentUser) return;
     const li = document.createElement('li');
-    li.textContent = u + ' ';
+    li.textContent = u;
     const btn = document.createElement('button');
-    btn.textContent = 'Add';
-    btn.addEventListener('click', () => {
-      socket.emit('sendRequest', u);
-    });
+    btn.textContent = 'Kirim permintaan';
+    btn.onclick = () => socket.emit('sendRequest', u);
     li.appendChild(btn);
-    userList.appendChild(li);
+    ul.appendChild(li);
   });
 });
 
-socket.on('requestResult', ({ success }) => {
-  alert(success ? 'Request sent' : 'Request gagal atau sudah dikirim');
+socket.on('requestResult', res => {
+  alert(res.success ? 'Permintaan dikirim' : 'Gagal mengirim permintaan');
 });
 
-// Update chat requests
-function updateRequests(requests) {
-  requestsList.innerHTML = '';
-  requests.forEach(r => {
+function loadChats(chats) {
+  const ul = document.getElementById('chatList');
+  ul.innerHTML = '';
+  chats.forEach(user => {
     const li = document.createElement('li');
-    li.textContent = r + ' ';
-    const acceptBtn = document.createElement('button');
-    acceptBtn.textContent = 'Accept';
-    acceptBtn.addEventListener('click', () => {
-      socket.emit('respondRequest', { from: r, accepted: true });
-    });
-    const rejectBtn = document.createElement('button');
-    rejectBtn.textContent = 'Reject';
-    rejectBtn.addEventListener('click', () => {
-      socket.emit('respondRequest', { from: r, accepted: false });
-    });
-    li.appendChild(acceptBtn);
-    li.appendChild(rejectBtn);
-    requestsList.appendChild(li);
+    li.textContent = user;
+    li.onclick = () => openChat(user);
+    ul.appendChild(li);
+  });
+}
+
+function loadRequests(requests) {
+  const ul = document.getElementById('requestList');
+  ul.innerHTML = '';
+  requests.forEach(user => {
+    const li = document.createElement('li');
+    li.textContent = user;
+
+    const accept = document.createElement('button');
+    accept.textContent = 'Terima';
+    accept.onclick = () => socket.emit('respondRequest', { from: user, accepted: true });
+
+    const reject = document.createElement('button');
+    reject.textContent = 'Tolak';
+    reject.onclick = () => socket.emit('respondRequest', { from: user, accepted: false });
+
+    li.appendChild(accept);
+    li.appendChild(reject);
+    ul.appendChild(li);
   });
 }
 
 socket.on('requestHandled', ({ from, accepted }) => {
-  alert(accepted ? `You are now chatting with ${from}` : `Request from ${from} rejected`);
-  // Refresh user data
-  socket.emit('login', { username: currentUser, password: '' }); // workaround to refresh data
+  alert(`${from} ${accepted ? 'diterima' : 'ditolak'}`);
+  location.reload();
 });
 
-// Update chats dropdown
-function updateChats(chats) {
-  chatSelect.innerHTML = '';
-  chats.forEach(chatUser => {
-    const option = document.createElement('option');
-    option.value = chatUser;
-    option.textContent = chatUser;
-    chatSelect.appendChild(option);
-  });
-  if (chats.length > 0) {
-    currentChat = chats[0];
-    loadMessages(currentChat);
-  }
+function openChat(user) {
+  currentChat = user;
+  document.getElementById('chatTitle').textContent = `Chat dengan ${user}`;
+  document.getElementById('messages').innerHTML = '';
 }
 
-// Load messages (very simple: fetch all messages between currentUser and selected chat)
-function loadMessages(chatUser) {
-  messagesDiv.innerHTML = '';
-  // For simplicity, no REST API - could extend server to emit chat history on request
-  // Here just clearing messages on chat change
-}
-
-chatSelect.addEventListener('change', e => {
-  currentChat = e.target.value;
-  loadMessages(currentChat);
-});
-
-// Send message
-sendBtn.addEventListener('click', () => {
-  const msg = messageInput.value.trim();
-  if (!msg || !currentChat) return;
+document.getElementById('messageForm')?.addEventListener('submit', e => {
+  e.preventDefault();
+  const msg = e.target.message.value;
+  if (!currentChat || !msg) return;
   socket.emit('sendMessage', { to: currentChat, message: msg });
-  messageInput.value = '';
+  e.target.message.value = '';
 });
 
 socket.on('newMessage', msg => {
-  // Show message only if it involves current user and current chat
-  if (
-    (msg.from === currentUser && msg.to === currentChat) ||
-    (msg.to === currentUser && msg.from === currentChat)
-  ) {
+  if (msg.from === currentUser || msg.to === currentUser) {
+    const messages = document.getElementById('messages');
     const div = document.createElement('div');
     div.textContent = `${msg.from}: ${msg.message}`;
-    messagesDiv.appendChild(div);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    messages.appendChild(div);
   }
 });
