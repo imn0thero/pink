@@ -2,138 +2,133 @@ const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http);
-const mongoose = require('mongoose');
 const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcrypt');
 
-const User = require('./models/User');
-const Message = require('./models/Message');
-
 const PORT = 3000;
-const MONGO_URI = 'Mongodb+srv://imnothero02:7XAtFnZCCDgAGtxT@cluster0.5cay7kz.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
+const USERS_FILE = path.join(__dirname, 'data', 'users.json');
+const MESSAGES_FILE = path.join(__dirname, 'data', 'messages.json');
 
+// Pastikan folder data dan file JSON ada
+if (!fs.existsSync('data')) fs.mkdirSync('data');
+if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, '[]');
+if (!fs.existsSync(MESSAGES_FILE)) fs.writeFileSync(MESSAGES_FILE, '[]');
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Koneksi MongoDB
-mongoose.connect(MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-}).then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file));
+}
+
+function writeJson(file, data) {
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+}
 
 io.on('connection', socket => {
   let currentUser = null;
 
   // Signup
-  socket.on('signup', async ({ username, password }) => {
-    try {
-      const exist = await User.findOne({ username });
-      if (exist) return socket.emit('signupResult', { success: false, message: 'Username sudah digunakan' });
-
-      const hashed = await bcrypt.hash(password, 10);
-      await new User({ username, password: hashed, chats: [], requests: [] }).save();
-
-      socket.emit('signupResult', { success: true });
-    } catch (err) {
-      socket.emit('signupResult', { success: false, message: 'Error saat signup' });
+  socket.on('signup', ({ username, password }) => {
+    const users = readJson(USERS_FILE);
+    if (users.find(u => u.username === username)) {
+      return socket.emit('signupResult', { success: false, message: 'Username sudah digunakan' });
     }
+
+    const hashed = bcrypt.hashSync(password, 10);
+    users.push({ username, password: hashed, chats: [], requests: [] });
+    writeJson(USERS_FILE, users);
+    socket.emit('signupResult', { success: true });
   });
 
   // Login
-  socket.on('login', async ({ username, password }) => {
-    try {
-      const user = await User.findOne({ username });
-      if (!user || !(await bcrypt.compare(password, user.password))) {
-        return socket.emit('loginResult', { success: false });
-      }
-      currentUser = username;
-      socket.emit('loginResult', { success: true, user: username, chats: user.chats, requests: user.requests });
-    } catch {
-      socket.emit('loginResult', { success: false });
+  socket.on('login', ({ username, password }) => {
+    const users = readJson(USERS_FILE);
+    const user = users.find(u => u.username === username);
+    if (!user || !bcrypt.compareSync(password, user.password)) {
+      return socket.emit('loginResult', { success: false });
     }
+    currentUser = username;
+    socket.emit('loginResult', { success: true, user: username, chats: user.chats, requests: user.requests });
   });
 
   // Edit Profile
-  socket.on('editProfile', async ({ newUsername, newPassword }) => {
+  socket.on('editProfile', ({ newUsername, newPassword }) => {
     if (!currentUser) return;
-    try {
-      const user = await User.findOne({ username: currentUser });
-      if (!user) return;
+    const users = readJson(USERS_FILE);
+    const user = users.find(u => u.username === currentUser);
+    if (!user) return;
 
-      if (newUsername && newUsername !== currentUser) {
-        const taken = await User.findOne({ username: newUsername });
-        if (taken) return socket.emit('profileUpdated', { success: false, message: 'Username sudah ada' });
-        user.username = newUsername;
-        currentUser = newUsername;
+    if (newUsername && newUsername !== currentUser) {
+      if (users.find(u => u.username === newUsername)) {
+        return socket.emit('profileUpdated', { success: false, message: 'Username sudah ada' });
       }
-      if (newPassword) user.password = await bcrypt.hash(newPassword, 10);
-
-      await user.save();
-      socket.emit('profileUpdated', { success: true, username: currentUser });
-    } catch {
-      socket.emit('profileUpdated', { success: false, message: 'Error saat update profil' });
+      user.username = newUsername;
+      currentUser = newUsername;
     }
+
+    if (newPassword) {
+      user.password = bcrypt.hashSync(newPassword, 10);
+    }
+
+    writeJson(USERS_FILE, users);
+    socket.emit('profileUpdated', { success: true, username: currentUser });
   });
 
   // Search User
-  socket.on('searchUser', async keyword => {
-    try {
-      const result = await User.find({ username: { $regex: keyword, $options: 'i' } });
-      socket.emit('searchResult', result.map(u => u.username));
-    } catch {
-      socket.emit('searchResult', []);
-    }
+  socket.on('searchUser', keyword => {
+    const users = readJson(USERS_FILE);
+    const result = users.filter(u => u.username.toLowerCase().includes(keyword.toLowerCase()));
+    socket.emit('searchResult', result.map(u => u.username));
   });
 
   // Send Chat Request
-  socket.on('sendRequest', async target => {
-    try {
-      const targetUser = await User.findOne({ username: target });
-      const user = await User.findOne({ username: currentUser });
-      if (!targetUser || targetUser.requests.includes(currentUser)) {
-        return socket.emit('requestResult', { success: false });
-      }
-      targetUser.requests.push(currentUser);
-      await targetUser.save();
-      socket.emit('requestResult', { success: true });
-    } catch {
-      socket.emit('requestResult', { success: false });
+  socket.on('sendRequest', target => {
+    const users = readJson(USERS_FILE);
+    const user = users.find(u => u.username === currentUser);
+    const targetUser = users.find(u => u.username === target);
+    if (!user || !targetUser || targetUser.requests.includes(currentUser)) {
+      return socket.emit('requestResult', { success: false });
     }
+
+    targetUser.requests.push(currentUser);
+    writeJson(USERS_FILE, users);
+    socket.emit('requestResult', { success: true });
   });
 
-  // Respond Request (Accept/Reject)
-  socket.on('respondRequest', async ({ from, accepted }) => {
-    try {
-      const user = await User.findOne({ username: currentUser });
-      const fromUser = await User.findOne({ username: from });
-      user.requests = user.requests.filter(r => r !== from);
+  // Handle Request
+  socket.on('respondRequest', ({ from, accepted }) => {
+    const users = readJson(USERS_FILE);
+    const user = users.find(u => u.username === currentUser);
+    const fromUser = users.find(u => u.username === from);
+    if (!user || !fromUser) return;
 
-      if (accepted) {
-        if (!user.chats.includes(from)) user.chats.push(from);
-        if (!fromUser.chats.includes(currentUser)) fromUser.chats.push(currentUser);
-      }
+    user.requests = user.requests.filter(r => r !== from);
 
-      await user.save();
-      await fromUser.save();
-      socket.emit('requestHandled', { from, accepted });
-    } catch {
-      socket.emit('requestHandled', { from, accepted: false });
+    if (accepted) {
+      if (!user.chats.includes(from)) user.chats.push(from);
+      if (!fromUser.chats.includes(currentUser)) fromUser.chats.push(currentUser);
     }
+
+    writeJson(USERS_FILE, users);
+    socket.emit('requestHandled', { from, accepted });
   });
 
   // Send Message
-  socket.on('sendMessage', async ({ to, message }) => {
-    try {
-      const newMsg = new Message({ from: currentUser, to, message });
-      await newMsg.save();
-      io.emit('newMessage', newMsg);
-    } catch {
-      // optionally emit error to client here
-    }
+  socket.on('sendMessage', ({ to, message }) => {
+    const messages = readJson(MESSAGES_FILE);
+    const newMsg = {
+      from: currentUser,
+      to,
+      message,
+      time: new Date().toISOString()
+    };
+    messages.push(newMsg);
+    writeJson(MESSAGES_FILE, messages);
+    io.emit('newMessage', newMsg);
   });
 });
 
 http.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
