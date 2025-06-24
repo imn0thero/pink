@@ -1,108 +1,220 @@
 const express = require('express');
-const app = express();
-const http = require('http').createServer(app);
-const io = require('socket.io')(http);
-const bcrypt = require('bcrypt');
+const http = require('http');
+const socketIo = require('socket.io');
 const path = require('path');
-const admin = require('firebase-admin');
+const multer = require('multer');
+const fs = require('fs');
 
-const serviceAccount = require('./firebase-service-account.json');
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: 'https://smileapp1-default-rtdb.asia-southeast1.firebasedatabase.app' // ganti <YOUR_PROJECT_ID>
+// Middleware
+app.use(express.static('public'));
+app.use(express.json());
+
+const MESSAGES_FILE = path.join(__dirname, 'messages.json');
+
+// Setup multer
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = 'public/uploads';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
 });
 
-const db = admin.database();
-const PORT = process.env.PORT || 3000;
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: function (req, file, cb) {
+    const allowedTypes = /jpeg|jpg|png|gif|mp4|mov|avi|pdf|doc|docx|txt|mp3|wav|ogg|webm|m4a/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
 
-app.use(express.static(path.join(__dirname, 'public')));
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('File type not allowed!'));
+    }
+  }
+});
 
-io.on('connection', socket => {
-  let currentUser = null;
+let connectedUsers = {};
+let messages = [];
+const MAX_USERS = 2;
+const MESSAGE_EXPIRY_HOURS = 24;
 
-  // Signup
-  socket.on('signup', async ({ username, password }) => {
-    const ref = db.ref(`users/${username}`);
-    ref.once('value', async snap => {
-      if (snap.exists()) {
-        return socket.emit('signupResult', { success: false, message: 'Username sudah digunakan' });
-      }
-      const hashed = await bcrypt.hash(password, 10);
-      ref.set({ username, password: hashed, chats: [], requests: [] });
-      socket.emit('signupResult', { success: true });
-    });
+// Load messages from file
+function loadMessages() {
+  try {
+    if (fs.existsSync(MESSAGES_FILE)) {
+      const data = fs.readFileSync(MESSAGES_FILE, 'utf8');
+      messages = JSON.parse(data);
+      console.log(`Loaded ${messages.length} messages from file`);
+      cleanExpiredMessages();
+    } else {
+      messages = [];
+      console.log('No existing messages file found, starting fresh');
+    }
+  } catch (error) {
+    console.error('Error loading messages:', error);
+    messages = [];
+  }
+}
+
+// Save messages to file
+function saveMessages() {
+  try {
+    fs.writeFileSync(MESSAGES_FILE, JSON.stringify(messages, null, 2));
+  } catch (error) {
+    console.error('Error saving messages:', error);
+  }
+}
+
+// Fungsi untuk menghapus file media
+function deleteMediaFile(message) {
+  if (message.media && message.media.path) {
+    const filePath = path.join(__dirname, 'public', message.media.path);
+    if (fs.existsSync(filePath)) {
+      fs.unlink(filePath, (err) => {
+        if (err) {
+          console.error(`Gagal menghapus file ${filePath}:`, err);
+        } else {
+          console.log(`Media dihapus: ${filePath}`);
+        }
+      });
+    }
+  }
+}
+
+// Hapus pesan > 24 jam + file media
+function cleanExpiredMessages() {
+  const now = new Date();
+  const newMessages = [];
+
+  for (const message of messages) {
+    const ageInHours = (now - new Date(message.timestamp)) / (1000 * 60 * 60);
+    if (ageInHours < MESSAGE_EXPIRY_HOURS) {
+      newMessages.push(message);
+    } else {
+      deleteMediaFile(message);
+    }
+  }
+
+  const removedCount = messages.length - newMessages.length;
+  messages = newMessages;
+
+  if (removedCount > 0) {
+    console.log(`Removed ${removedCount} expired messages`);
+    saveMessages();
+    io.emit('messages_cleaned', { removedCount });
+  }
+}
+
+// Jalankan setiap jam
+setInterval(cleanExpiredMessages, 60 * 60 * 1000);
+loadMessages();
+
+// ROUTES
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.post('/upload', upload.single('media'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  res.json({
+    filename: req.file.filename,
+    originalName: req.file.originalname,
+    size: req.file.size,
+    path: `/uploads/${req.file.filename}`
   });
+});
 
-  // Login
-  socket.on('login', async ({ username, password }) => {
-    const ref = db.ref(`users/${username}`);
-    ref.once('value', async snap => {
-      const user = snap.val();
-      if (!user || !(await bcrypt.compare(password, user.password))) {
-        return socket.emit('loginResult', { success: false });
-      }
-      currentUser = username;
-      socket.emit('loginResult', { success: true, user: username, chats: user.chats || [], requests: user.requests || [] });
-    });
-  });
+// SOCKET.IO
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
 
-  // Send message
-  socket.on('sendMessage', async ({ to, message }) => {
-    const msgRef = db.ref('messages').push();
-    const newMsg = { from: currentUser, to, message, time: Date.now() };
-    await msgRef.set(newMsg);
-    io.emit('newMessage', newMsg);
-  });
-
-  // Search user
-  socket.on('searchUser', async keyword => {
-    db.ref('users').once('value', snap => {
-      const users = snap.val() || {};
-      const result = Object.keys(users).filter(u => u.toLowerCase().includes(keyword.toLowerCase()));
-      socket.emit('searchResult', result);
-    });
-  });
-
-  // Send friend request
-  socket.on('sendRequest', async target => {
-    const targetRef = db.ref(`users/${target}`);
-    targetRef.once('value', snap => {
-      const user = snap.val();
-      if (!user || (user.requests || []).includes(currentUser)) {
-        return socket.emit('requestResult', { success: false });
-      }
-      const requests = user.requests || [];
-      requests.push(currentUser);
-      targetRef.update({ requests });
-      socket.emit('requestResult', { success: true });
-    });
-  });
-
-  // Handle request response
-  socket.on('respondRequest', async ({ from, accepted }) => {
-    const userRef = db.ref(`users/${currentUser}`);
-    const fromRef = db.ref(`users/${from}`);
-
-    const userSnap = await userRef.once('value');
-    const fromSnap = await fromRef.once('value');
-    const user = userSnap.val();
-    const fromUser = fromSnap.val();
-
-    const requests = (user.requests || []).filter(r => r !== from);
-    const chats = user.chats || [];
-
-    if (accepted && !chats.includes(from)) chats.push(from);
-    await userRef.update({ requests, chats });
-
-    if (accepted) {
-      const fromChats = fromUser.chats || [];
-      if (!fromChats.includes(currentUser)) fromChats.push(currentUser);
-      await fromRef.update({ chats: fromChats });
+  socket.on('join', (username) => {
+    if (Object.keys(connectedUsers).length >= MAX_USERS) {
+      socket.emit('room_full');
+      return;
     }
 
-    socket.emit('requestHandled', { from, accepted });
+    const isTaken = Object.values(connectedUsers).some(user => user.username === username);
+    if (isTaken) {
+      socket.emit('username_taken');
+      return;
+    }
+
+    connectedUsers[socket.id] = {
+      username,
+      status: 'online',
+      joinedAt: new Date()
+    };
+
+    socket.username = username;
+    socket.emit('load_messages', messages);
+    io.emit('user_list_update', Object.values(connectedUsers));
+    socket.broadcast.emit('user_joined', username);
+    console.log(`${username} joined`);
+  });
+
+  socket.on('new_message', (data) => {
+    if (!socket.username) return;
+
+    const message = {
+      id: Date.now() + Math.random(),
+      username: socket.username,
+      text: data.text,
+      media: data.media || null,
+      timestamp: new Date(),
+      type: data.type || 'text'
+    };
+
+    messages.push(message);
+    saveMessages();
+    io.emit('message_received', message);
+  });
+
+  socket.on('typing', (isTyping) => {
+    if (!socket.username) return;
+    socket.broadcast.emit('user_typing', {
+      username: socket.username,
+      isTyping
+    });
+  });
+
+  socket.on('clear_messages', () => {
+    if (!socket.username) return;
+
+    messages.forEach(deleteMediaFile);
+    messages = [];
+    saveMessages();
+    io.emit('messages_cleared');
+    console.log(`${socket.username} cleared messages`);
+  });
+
+  socket.on('disconnect', () => {
+    if (socket.username) {
+      delete connectedUsers[socket.id];
+      io.emit('user_list_update', Object.values(connectedUsers));
+      socket.broadcast.emit('user_left', socket.username);
+      console.log(`${socket.username} left`);
+    }
   });
 });
 
-http.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
