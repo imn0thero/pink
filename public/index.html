@@ -1,26 +1,592 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <title>Chat App</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Web Chat</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>Chat App</h1>
-  <div id="login">
-    <input type="text" id="username" placeholder="Username" />
-    <input type="password" id="password" placeholder="Password" />
-    <button onclick="login()">Login</button>
-    <button onclick="signup()">Signup</button>
-  </div>
-  <div id="chat" style="display:none;">
-    <p>Logged in as: <span id="me"></span></p>
-    <input type="text" id="to" placeholder="Send to..." />
-    <input type="text" id="message" placeholder="Message..." />
-    <button onclick="sendMessage()">Send</button>
-    <div id="messages"></div>
-  </div>
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="main.js"></script>
+    <div class="container">
+        <div class="sidebar">
+            <h3>☻</h3>
+            <div class="user-list" id="userList">
+                <!-- Users will be populated here -->
+            </div>
+        </div>
+        
+        <div class="chat-area">
+            <div class="chat-header">
+              <h2>WELCOME</h2>
+                <button class="clear-btn" id="clearBtn">🗑️</button>
+            </div>
+            
+            <div class="messages-container" id="messagesContainer">
+                <!-- Messages will appear here -->
+            </div>
+            
+            <div class="typing-indicator" id="typingIndicator"></div>
+            
+            <div class="input-area">
+                <input type="text" id="messageInput" class="message-input" placeholder="Sampaikan Perasaanmu..." disabled>
+                <input type="file" id="fileInput" class="file-input" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt">
+                <button class="media-btn" id="mediaBtn" disabled>⎙</button>
+                <button class="voice-btn" id="voiceBtn" disabled>♬.ᐟ</button>
+                <button class="send-btn" id="sendBtn" disabled>ᯓ➤</button>
+            </div>
+            <div id="uploadProgress">
+               <div id="uploadBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Voice Recording Modal -->
+    <div class="voice-recording-modal" id="voiceRecordingModal">
+        <div class="voice-recording-container">
+            <div class="recording-indicator">🎤</div>
+            <div class="recording-time" id="recordingTime">00:00</div>
+            <p style="margin-bottom: 20px; color: #aaa;">Sedang merekam suara hati...</p>
+            <div class="recording-controls">
+                <button class="recording-btn cancel-btn" id="cancelRecordingBtn">Batal</button>
+                <button class="recording-btn stop-send-btn" id="stopSendBtn">Kirim</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div class="login-modal" id="loginModal">
+        <div class="login-form">
+            <h2>Mau Masuk ke Hatiku Sayang?</h2>
+            <div class="error-message" id="errorMessage"></div>
+            <input type="text" id="usernameInput" placeholder="Masukkan Namamu" maxlength="20">
+            <button id="joinBtn">Mau Dong</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentUser = null;
+        let typingTimer = null;
+
+        // Voice recording variables
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let recordingTimer = null;
+        let recordingStartTime = null;
+        let isRecording = false;
+
+        // DOM elements
+        const loginModal = document.getElementById('loginModal');
+        const usernameInput = document.getElementById('usernameInput');
+        const joinBtn = document.getElementById('joinBtn');
+        const errorMessage = document.getElementById('errorMessage');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const mediaBtn = document.getElementById('mediaBtn');
+        const voiceBtn = document.getElementById('voiceBtn');
+        const fileInput = document.getElementById('fileInput');
+        const clearBtn = document.getElementById('clearBtn');
+        const messagesContainer = document.getElementById('messagesContainer');
+        const userList = document.getElementById('userList');
+        const typingIndicator = document.getElementById('typingIndicator');
+        const uploadProgress = document.getElementById('uploadProgress');
+        const uploadBar = document.getElementById('uploadBar');
+
+        // Voice recording modal elements
+        const voiceRecordingModal = document.getElementById('voiceRecordingModal');
+        const recordingTime = document.getElementById('recordingTime');
+        const cancelRecordingBtn = document.getElementById('cancelRecordingBtn');
+        const stopSendBtn = document.getElementById('stopSendBtn');
+
+        // Join chat
+        joinBtn.addEventListener('click', () => {
+            const username = usernameInput.value.trim();
+            if (username) {
+                socket.emit('join', username);
+            }
+        });
+
+        // Enter key for join
+        usernameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                joinBtn.click();
+            }
+        });
+
+        // Send message
+        function sendMessage() {
+            const text = messageInput.value.trim();
+            if (text) {
+                socket.emit('new_message', { text, type: 'text' });
+                messageInput.value = '';
+                socket.emit('typing', false);
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Typing indicator
+        messageInput.addEventListener('input', () => {
+            socket.emit('typing', true);
+            
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(() => {
+                socket.emit('typing', false);
+            }, 1000);
+        });
+
+        // File upload
+        mediaBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Voice recording functions
+        async function startVoiceRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    sendVoiceNote(audioBlob);
+                    
+                    // Stop all tracks to turn off microphone
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                recordingStartTime = Date.now();
+                
+                // Show recording modal
+                voiceRecordingModal.style.display = 'flex';
+                
+                // Start timer
+                recordingTimer = setInterval(updateRecordingTime, 100);
+                
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                showNotification('Tidak dapat mengakses mikrofon', 'error');
+            }
+        }
+
+        function stopVoiceRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                clearInterval(recordingTimer);
+                voiceRecordingModal.style.display = 'none';
+            }
+        }
+
+        function cancelVoiceRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                isRecording = false;
+                clearInterval(recordingTimer);
+                voiceRecordingModal.style.display = 'none';
+                showNotification('Perekaman dibatalkan');
+            }
+        }
+
+        function updateRecordingTime() {
+            if (recordingStartTime) {
+                const elapsed = Date.now() - recordingStartTime;
+                const seconds = Math.floor(elapsed / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                
+                recordingTime.textContent = 
+                    `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+            }
+        }
+
+        function sendVoiceNote(audioBlob) {
+            const formData = new FormData();
+            const fileName = `voice_${Date.now()}.wav`;
+            formData.append('media', audioBlob, fileName);
+
+            const xhr = new XMLHttpRequest();
+
+            xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) {
+                    const percent = (event.loaded / event.total) * 100;
+                    uploadBar.style.width = percent + '%';
+                }
+            };
+
+            xhr.onloadstart = () => {
+                uploadProgress.style.display = 'block';
+                uploadBar.style.width = '0%';
+            };
+
+            xhr.onloadend = () => {
+                setTimeout(() => {
+                    uploadProgress.style.display = 'none';
+                    uploadBar.style.width = '0%';
+                }, 800);
+            };
+
+            xhr.onreadystatechange = () => {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        const data = JSON.parse(xhr.responseText);
+                        if (data.error) {
+                            showNotification(data.error, 'error');
+                        } else {
+                            const duration = Math.floor((Date.now() - recordingStartTime) / 1000);
+                            socket.emit('new_message', {
+                                text: '🎤 Pesan Suara',
+                                media: {
+                                    filename: data.filename,
+                                    originalName: data.originalName,
+                                    path: data.path,
+                                    size: data.size,
+                                    duration: duration
+                                },
+                                type: 'voice'
+                            });
+                        }
+                    } catch (e) {
+                        showNotification('Upload gagal (respon tidak valid)', 'error');
+                    }
+                }
+            };
+
+            xhr.open('POST', '/upload');
+            xhr.send(formData);
+        }
+
+        function formatDuration(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function createWaveform() {
+            const waveform = document.createElement('div');
+            waveform.className = 'voice-waveform';
+            
+            // Create simple waveform bars
+            for (let i = 0; i < 20; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'waveform-bar';
+                bar.style.height = Math.random() * 16 + 4 + 'px';
+                bar.style.animationDelay = Math.random() * 1.5 + 's';
+                waveform.appendChild(bar);
+            }
+            
+            return waveform;
+        }
+
+        // Voice recording event listeners
+        voiceBtn.addEventListener('click', startVoiceRecording);
+        cancelRecordingBtn.addEventListener('click', cancelVoiceRecording);
+        stopSendBtn.addEventListener('click', stopVoiceRecording);
+
+        // File upload with voice note support
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const formData = new FormData();
+                formData.append('media', file);
+
+                const xhr = new XMLHttpRequest();
+
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        const percent = (event.loaded / event.total) * 100;
+                        uploadBar.style.width = percent + '%';
+                    }
+                };
+
+                xhr.onloadstart = () => {
+                    uploadProgress.style.display = 'block';
+                    uploadBar.style.width = '0%';
+                };
+
+                xhr.onloadend = () => {
+                    setTimeout(() => {
+                        uploadProgress.style.display = 'none';
+                        uploadBar.style.width = '0%';
+                    }, 800);
+                    fileInput.value = '';
+                };
+
+                xhr.onreadystatechange = () => {
+                    if (xhr.readyState === 4 && xhr.status === 200) {
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            if (data.error) {
+                                showNotification(data.error, 'error');
+                            } else {
+                                socket.emit('new_message', {
+                                    text: `Mengirim file: ${data.originalName}`,
+                                    media: {
+                                        filename: data.filename,
+                                        originalName: data.originalName,
+                                        path: data.path,
+                                        size: data.size
+                                    },
+                                    type: 'media'
+                                });
+                            }
+                        } catch (e) {
+                            showNotification('Upload gagal (respon tidak valid)', 'error');
+                        }
+                    }
+                };
+
+                xhr.open('POST', '/upload');
+                xhr.send(formData);
+            }
+        });
+
+        // Clear messages
+        clearBtn.addEventListener('click', () => {
+            if (confirm('Hilangkan Semua Kenangan Yang Telah Terbangun?')) {
+                socket.emit('clear_messages');
+            }
+        });
+
+        // Socket events
+        socket.on('room_full', () => {
+            errorMessage.textContent = 'Maaf Cuma Buat 2 Orang Yang Saling Menyayangi';
+        });
+
+        socket.on('username_taken', () => {
+            errorMessage.textContent = 'Namamu Udah Ada Di Hatiku!';
+        });
+
+        socket.on('load_messages', (messages) => {
+            currentUser = usernameInput.value.trim();
+            loginModal.style.display = 'none';
+            
+            // Enable inputs
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+            mediaBtn.disabled = false;
+            voiceBtn.disabled = false;
+            
+            // Load existing messages
+            messages.forEach(message => {
+                displayMessage(message);
+            });
+            
+            showNotification('Yeayy, Masuk Ke Hatimu!');
+        });
+
+        socket.on('message_received', (message) => {
+            displayMessage(message);
+        });
+
+        socket.on('messages_cleared', () => {
+            messagesContainer.innerHTML = '';
+            showNotification('Semua Sudah Tidak Bisa Dikembalikan, Tapi Masih Ada Kesempatan Berikutnya!');
+        });
+
+        socket.on('user_list_update', (users) => {
+            updateUserList(users);
+        });
+
+        socket.on('user_joined', (username) => {
+            showNotification(`${username} Ciee Kesini Kangen Ya?`);
+        });
+
+        socket.on('user_left', (username) => {
+            showNotification(`${username} Bye bye Ayang, Jangan Lupa Mampir Lagi`);
+        });
+
+        socket.on('messages_cleaned', (data) => {
+            if (data.removedCount > 0) {
+                showNotification(`${data.removedCount} pesan lama (>24 jam) telah dihapus otomatis`);
+                location.reload();
+            }
+        });
+
+        socket.on('user_typing', (data) => {
+            if (data.isTyping) {
+                typingIndicator.textContent = `${data.username} Sedang Menyampaikan Perasaan...`;
+            } else {
+                typingIndicator.textContent = '';
+            }
+        });
+
+        // Helper functions
+        function displayMessage(message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${message.username === currentUser ? 'own' : ''}`;
+            
+            const timestamp = new Date(message.timestamp).toLocaleTimeString('id-ID', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            let mediaContent = '';
+            if (message.media) {
+                const ext = message.media.filename.split('.').pop().toLowerCase();
+                
+                if (message.type === 'voice' || ['wav', 'mp3', 'ogg', 'm4a'].includes(ext)) {
+                    // Voice note
+                    const duration = message.media.duration || 0;
+                    const waveform = createWaveform();
+                    
+                    mediaContent = `<div class="message-media">
+                        <div class="voice-note">
+                            <button class="voice-play-btn" onclick="toggleVoicePlayback('${message.media.path}', this)">▶</button>
+                            ${waveform.outerHTML}
+                            <span class="voice-duration">${formatDuration(duration)}</span>
+                        </div>
+                    </div>`;
+                } else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+                    mediaContent = `<div class="message-media">
+                        <img src="${message.media.path}" alt="${message.media.originalName}">
+                    </div>`;
+                } else if (['mp4', 'mov', 'avi'].includes(ext)) {
+                    mediaContent = `<div class="message-media">
+                        <video controls>
+                            <source src="${message.media.path}" type="video/${ext}">
+                        </video>
+                    </div>`;
+                } else {
+                    mediaContent = `<div class="message-media">
+                        <a href="${message.media.path}" target="_blank">📎 ${message.media.originalName}</a>
+                    </div>`;
+                }
+            }
+
+            messageDiv.innerHTML = `
+                <div class="message-bubble">
+                    ${message.text}
+                    ${mediaContent}
+                </div>
+                <div class="message-info">
+                    ${message.username}<br>
+                    ${timestamp}
+                </div>
+            `;
+
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // Global function for voice playback
+        let currentAudio = null;
+        let currentButton = null;
+
+        window.toggleVoicePlayback = function(audioPath, button) {
+            if (currentAudio && !currentAudio.paused) {
+                // Stop current audio
+                currentAudio.pause();
+                currentAudio.currentTime = 0;
+                if (currentButton) {
+                    currentButton.innerHTML = '▶';
+                    currentButton.classList.remove('playing');
+                }
+                
+                if (currentButton === button) {
+                    currentAudio = null;
+                    currentButton = null;
+                    return;
+                }
+            }
+
+            // Play new audio
+            currentAudio = new Audio(audioPath);
+            currentButton = button;
+            
+            button.innerHTML = '⏸';
+            button.classList.add('playing');
+            
+            currentAudio.play().catch(error => {
+                console.error('Error playing audio:', error);
+                showNotification('Tidak dapat memutar audio', 'error');
+                button.innerHTML = '▶';
+                button.classList.remove('playing');
+            });
+            
+            currentAudio.onended = () => {
+                button.innerHTML = '▶';
+                button.classList.remove('playing');
+                currentAudio = null;
+                currentButton = null;
+            };
+            
+            currentAudio.onerror = () => {
+                button.innerHTML = '▶';
+                button.classList.remove('playing');
+                currentAudio = null;
+                currentButton = null;
+                showNotification('Error memutar audio', 'error');
+            };
+        };
+
+        function updateUserList(users) {
+            userList.innerHTML = '';
+            users.forEach(user => {
+                const userDiv = document.createElement('div');
+                userDiv.className = 'user-item';
+                userDiv.innerHTML = `
+                    <div class="status-indicator status-${user.status}"></div>
+                    <span>${user.username}</span>
+                `;
+                userList.appendChild(userDiv);
+            });
+        }
+
+        function showNotification(message, type = 'success') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+
+        // Check microphone permission on load
+        async function checkMicrophonePermission() {
+            try {
+                const permission = await navigator.permissions.query({ name: 'microphone' });
+                if (permission.state === 'denied') {
+                    showNotification('Akses mikrofon ditolak. Voice note tidak tersedia.', 'error');
+                    voiceBtn.disabled = true;
+                    voiceBtn.title = 'Akses mikrofon diperlukan';
+                }
+            } catch (error) {
+                console.log('Could not check microphone permission:', error);
+            }
+        }
+
+        // Initialize microphone check when page loads
+        window.addEventListener('load', checkMicrophonePermission);
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Ctrl/Cmd + R for voice recording
+            if ((e.ctrlKey || e.metaKey) && e.key === 'r' && !isRecording && currentUser) {
+                e.preventDefault();
+                startVoiceRecording();
+            }
+            
+            // Escape to cancel recording
+            if (e.key === 'Escape' && isRecording) {
+                cancelVoiceRecording();
+            }
+        });
+    </script>
 </body>
 </html>
