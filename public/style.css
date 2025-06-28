@@ -433,7 +433,7 @@ body::before {
 .typing-indicator {
     padding: 10px 20px;
     font-style: italic;
-    color: var(--primary-pink);
+    color: var(--soft-purple);
     font-size: 0.9rem;
     min-height: 30px;
     display: flex;
