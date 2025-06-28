@@ -433,7 +433,7 @@ body::before {
 .typing-indicator {
     padding: 10px 20px;
     font-style: italic;
-    color: var(--text-light);
+    color: var(--primary-pink);
     font-size: 0.9rem;
     min-height: 30px;
     display: flex;
@@ -441,7 +441,7 @@ body::before {
 }
 
 .typing-indicator::after {
-    content: '💭';
+    content: '𓂃 𓈒𓏸❤️ ̖́-';
     margin-left: 8px;
     animation: bounce 1s infinite;
 }
