@@ -809,12 +809,12 @@ body::before {
         right: 0;
         z-index: 100;
     }
-
+    
     .sidebar h3 {
         margin-bottom: 0;
         font-size: 1.5rem;
     }
-
+    
     .user-list {
         display: flex;
         gap: 10px;
@@ -822,157 +822,73 @@ body::before {
         overflow-x: auto;
         max-width: 60%;
     }
-
+    
     .user-item {
         margin-bottom: 0;
         padding: 8px 12px;
         min-width: 100px;
         white-space: nowrap;
     }
-
+    
     .chat-area {
         margin-left: 0;
         height: 100vh;
     }
-
+    
     .chat-header {
         left: 0;
-        top: 80px;
+        top: 80px; /* Below mobile sidebar */
         padding: 15px 20px;
     }
-
+    
     .chat-header h2 {
         font-size: 1.4rem;
         margin-left: 20px;
     }
-
+    
     .messages-container {
-        margin-top: 140px;
-        margin-bottom: 80px;
+        margin-top: 140px; /* Space for mobile sidebar + header */
+        margin-bottom: 80px; /* Space for mobile input */
         height: calc(100vh - 220px);
         padding: 15px;
     }
-
+    
     .message-bubble {
         max-width: 85%;
         padding: 12px 16px;
     }
-
+    
     .input-area {
         left: 0;
         padding: 15px;
         gap: 8px;
     }
-
+    
     .message-input {
         padding: 12px 16px;
         font-size: 0.9rem;
     }
-
+    
     .media-btn, .voice-btn, .send-btn {
         width: 45px;
         height: 45px;
         font-size: 1rem;
     }
-
+    
     .login-form {
         margin: 20px;
         min-width: auto;
         padding: 40px 30px;
     }
-
+    
     .voice-recording-container {
         margin: 20px;
         min-width: auto;
         padding: 30px;
     }
-
+    
     #uploadProgress {
         left: 20px;
         bottom: 70px;
     }
-}
-
-/* Tambahan untuk layar sangat kecil */
-@media (max-width: 480px) {
-    .sidebar {
-        flex-direction: column;
-        align-items: flex-start;
-        height: auto;
-        padding: 10px;
-        gap: 10px;
     }
-
-    .sidebar h3 {
-        font-size: 1.2rem;
-        margin-bottom: 10px;
-    }
-
-    .user-list {
-        flex-direction: row;
-        overflow-x: auto;
-        max-width: 100%;
-    }
-
-    .user-item {
-        min-width: 80px;
-        font-size: 0.8rem;
-        padding: 6px 10px;
-    }
-
-    .chat-header {
-        top: 110px;
-        padding: 10px 15px;
-    }
-
-    .chat-header h2 {
-        font-size: 1.2rem;
-        margin-left: 15px;
-    }
-
-    .messages-container {
-        margin-top: 170px;
-        margin-bottom: 70px;
-        height: calc(100vh - 240px);
-        padding: 10px;
-    }
-
-    .message-bubble {
-        max-width: 90%;
-        padding: 10px 14px;
-        font-size: 0.9rem;
-    }
-
-    .input-area {
-        padding: 10px;
-        gap: 6px;
-    }
-
-    .message-input {
-        padding: 10px 14px;
-        font-size: 0.9rem;
-    }
-
-    .media-btn, .voice-btn, .send-btn {
-        width: 40px;
-        height: 40px;
-        font-size: 0.9rem;
-    }
-
-    .login-form {
-        min-width: auto;
-        width: 90%;
-        padding: 30px 20px;
-    }
-
-    .voice-recording-container {
-        width: 90%;
-        padding: 25px 20px;
-    }
-
-    #uploadProgress {
-        left: 20px;
-        right: 20px;
-        bottom: 65px;
-    }
-}
