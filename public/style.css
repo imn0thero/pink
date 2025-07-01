@@ -256,9 +256,10 @@ body::before {
         rgba(255, 235, 240, 0.3) 100%);
     scroll-behavior: smooth;
     margin-top: 80px; /* Space for fixed header */
-    margin-bottom: 100px; /* Space for fixed input area */
-    height: 100vh; /* Adjust height to fit between header and input */
+    margin-bottom: 80px; /* Space for fixed input area */
+    height: 90vh; /* Adjust height to fit between header and input */
     flex-direction: column;
+    left: 0;
 }
 
 .messages-container::-webkit-scrollbar {
